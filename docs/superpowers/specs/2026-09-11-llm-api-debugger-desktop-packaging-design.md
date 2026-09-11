@@ -16,8 +16,8 @@ Pake is a webview wrapper, not a Node server bundler. The packaged app opens the
 
 - Source icon: `assets/llm-api-debugger-icon.svg`
 - macOS icon bundle: `assets/llm-api-debugger-icon.icns`
-- Packaged application: `dist/LLM API Debugger.app`
-- Pake command: `pake http://127.0.0.1:8787 --name "LLM API Debugger" --icon ./assets/llm-api-debugger-icon.icns --output ./dist`
+- Packaged application: `LLM API Debugger.dmg` (contains `LLM API Debugger.app`)
+- Pake command: `pake http://127.0.0.1:8787 --name "LLM API Debugger" --identifier "local.llm-api-debugger" --icon ./assets/llm-api-debugger-icon.icns --width 1280 --height 900 --dark-mode --enable-find`
 
 ## Verification
 
