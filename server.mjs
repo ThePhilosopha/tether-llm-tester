@@ -133,7 +133,9 @@ export function createApp({ statePath, publicDir = join(root, 'public'), compari
         res.writeHead(response.ok ? 200 : 502, { 'content-type': 'application/x-ndjson; charset=utf-8', 'cache-control': 'no-store', 'x-trace-id': traceId });
         const send = event => res.write(`${JSON.stringify(event)}\n`); send(requestTrace);
         if (!response.ok || !response.body) { send({ type: 'error', status: response.status, message: await response.text() }); traces.delete(traceId); return res.end(); }
-        await forwardSse(response, send); traces.delete(traceId); return res.end();
+        try { await forwardSse(response, send); }
+        catch (failure) { if (failure.name !== 'AbortError') send({ type: 'error', message: failure.message }); }
+        traces.delete(traceId); return res.end();
       }
       const cancel = path.match(/^\/api\/chat\/([a-f0-9]+)\/cancel$/);
       if (cancel && req.method === 'POST') { const trace = traces.get(cancel[1]); if (trace) trace.abort(); return json(res, 200, { cancelled: Boolean(trace) }); }
@@ -147,7 +149,10 @@ export function createApp({ statePath, publicDir = join(root, 'public'), compari
       if (path === '/api/ollama/settings' && req.method === 'PUT') { const { settings } = await requestBody(req); state.ollama.settings = validateSettings(settings); await persist(); return json(res, 200, publicState(state).ollama); }
       if (path === '/api/ollama/settings/apply-macos' && req.method === 'POST') { const { confirmed } = await requestBody(req); if (confirmed !== true) return error(res, 400, 'Applying macOS settings requires explicit confirmation.'); if (process.platform !== 'darwin') return error(res, 400, 'macOS settings are unavailable on this platform.'); for (const args of macosEnvCommands(state.ollama.settings)) await new Promise((resolve, reject) => { const child = spawn('launchctl', args, { shell: false }); child.on('error', reject); child.on('close', code => code === 0 ? resolve() : reject(new Error(`launchctl exited with ${code}`))); }); return json(res, 200, { applied: true, restartRequired: true }); }
       return error(res, 404, 'Route not found.');
-    } catch (caught) { return error(res, 400, caught.name === 'AbortError' ? 'Request cancelled.' : caught.message); }
+    } catch (caught) {
+      if (res.headersSent) { if (!res.writableEnded) res.end(); return; }
+      return error(res, 400, caught.name === 'AbortError' ? 'Request cancelled.' : caught.message);
+    }
   });
   return {
     async start(port = 8787) {

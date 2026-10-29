@@ -16,6 +16,12 @@ before(async () => {
       let body = ''; req.on('data', chunk => body += chunk); req.on('end', () => {
         const request = JSON.parse(body); assert.equal(req.headers.authorization, 'Bearer secret');
         if (!request.stream) return res.end(JSON.stringify({ choices: [{ message: { content: 'plain reply' } }] }));
+        if (request.model === 'slow') {
+          res.writeHead(200, { 'content-type': 'text/event-stream' });
+          res.write('data: {"choices":[{"delta":{"content":"partial"}}]}\n\n');
+          setTimeout(() => { if (!res.destroyed) res.end('data: [DONE]\n\n'); }, 5000);
+          return;
+        }
         res.writeHead(200, { 'content-type': 'text/event-stream' });
         res.write('data: {"choices":[{"delta":{"content":"hello ","tool_calls":[{"index":0,"function":{"name":"lookup","arguments":"{\\"q\\":"}}]}}]}\n\n');
         res.end('data: {"choices":[{"delta":{"content":"world","tool_calls":[{"index":0,"function":{"arguments":"\\"x\\"}"}}]},"finish_reason":"stop"}],"usage":{"total_tokens":3}}\n\ndata: [DONE]\n\n');
@@ -56,6 +62,19 @@ test('chat proxy masks secrets and preserves streaming frames', async () => {
   assert.equal(plain.response.body.choices[0].message.content, 'plain reply');
   assert.equal(parseSseFrame('data: [DONE]'), null); assert.throws(() => validateModelName('bad model'), /Model names/);
 });
+test('cancelling a live chat stream ends that request without killing the server', async () => {
+  const provider = app.state.providers.find(item => item.name === 'Fake');
+  const streamed = await sameOrigin('/api/chat', { method: 'POST', body: JSON.stringify({ providerId: provider.id, request: { model: 'slow', messages: [{ role: 'user', content: 'hi' }], stream: true } }) });
+  const reader = streamed.body.getReader();
+  await reader.read();
+  const cancel = await sameOrigin(`/api/chat/${streamed.headers.get('x-trace-id')}/cancel`, { method: 'POST', body: '{}' });
+  assert.equal(cancel.status, 200);
+  // A crashed handler leaves this body open forever, so probe the server instead of draining.
+  const alive = await fetch(`${base}/api/state`, { signal: AbortSignal.timeout(3000) });
+  assert.equal(alive.status, 200);
+  await reader.cancel().catch(() => {});
+});
+
 test('Ollama command boundaries reject unsafe model names before command execution', async () => {
   const response = await sameOrigin('/api/ollama/models/stop', { method: 'POST', body: JSON.stringify({ name: 'bad model', confirmed: true }) });
   assert.equal(response.status, 400);
