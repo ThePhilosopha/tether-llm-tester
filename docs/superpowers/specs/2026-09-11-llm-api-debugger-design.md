@@ -480,13 +480,11 @@ Do not claim an environment change took effect until a restart and health check 
 |---|---|---|
 | `GET` | `/api/ollama/status` | Probe `/api/version`; report managed child state |
 | `GET` | `/api/ollama/models` | Proxy `/api/tags` |
-| `POST` | `/api/ollama/models/show` | Proxy `/api/show` |
 | `POST` | `/api/ollama/models/pull` | Proxy and stream `/api/pull` NDJSON |
 | `DELETE` | `/api/ollama/models` | Confirmed proxy to `/api/delete` |
 | `GET` | `/api/ollama/running` | Proxy `/api/ps` |
 | `POST` | `/api/ollama/models/stop` | Run allowlisted `ollama stop <model>` |
 | `POST` | `/api/ollama/process/start` | Spawn managed `ollama serve` |
-| `POST` | `/api/ollama/process/restart` | Stop only the child owned by this app; restart with saved env |
 | `PUT` | `/api/ollama/settings` | Validate and save allowlisted env values |
 | `POST` | `/api/ollama/settings/apply-macos` | Run allowlisted `launchctl setenv`; require UI confirmation |
 

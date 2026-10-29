@@ -1,3 +1,5 @@
+import { initCompare } from './compare.js';
+
 const token = document.querySelector('meta[name="session-token"]').content;
 const state = { data: null, providerId: null, tab: 'chat', controller: null, raw: '', text: '', reasoning: '', toolCalls: new Map(), expertDirty: false };
 const $ = selector => document.querySelector(selector);
@@ -8,6 +10,7 @@ const api = async (path, options = {}) => {
   return data;
 };
 const toast = message => { const el = $('#toast'); el.textContent = message; el.classList.add('show'); clearTimeout(toast.timer); toast.timer = setTimeout(() => el.classList.remove('show'), 3600); };
+const comparison = initCompare({ api, getProviders: () => state.data?.providers || [], notify: toast });
 const selected = () => state.data.providers.find(provider => provider.id === state.providerId);
 const modelCapability = value => value === 'yes' ? 'Yes' : value === 'no' ? 'No' : 'Unknown';
 
@@ -69,16 +72,16 @@ async function sendRequest(event) {
 }
 async function refreshModels() { try { const result = await api(`/api/providers/${encodeURIComponent(state.providerId)}/models`); selected().models = result.data; renderModels(); toast(`Loaded ${result.data.length} models.`); } catch (error) { toast(error.message); } }
 function showProvider(provider = null) {
-  const dialog = $('#provider-dialog'); const preset = $('#preset'); preset.replaceChildren(...Object.entries(window.PRESETS || {}).map(() => []));
-  const presets = { ollama:'Ollama', '9router':'9Router', poolside:'Poolside', openrouter:'OpenRouter', 'opencode-zen':'OpenCode Zen', 'opencode-go':'OpenCode Go', clinepass:'ClinePass', custom:'Custom' };
+  const dialog = $('#provider-dialog'); const preset = $('#preset');
+  const presets = { ollama:'Ollama', 'ollama-cloud':'Ollama Cloud', '9router':'9Router', poolside:'Poolside', openrouter:'OpenRouter', 'opencode-zen':'OpenCode Zen', 'opencode-go':'OpenCode Go', clinepass:'ClinePass', custom:'Custom' };
   preset.replaceChildren(...Object.entries(presets).map(([id, name]) => new Option(name, id)));
   $('#provider-form').dataset.id = provider?.id || ''; preset.value = provider?.presetId || 'custom'; $('#provider-form-name').value = provider?.name || ''; $('#provider-base-url').value = provider?.baseUrl || ''; $('#provider-auth').value = provider?.auth || 'bearer'; $('#provider-key').value = ''; $('#provider-headers').value = provider ? JSON.stringify(provider.headers || {}, null, 2) : '{}'; dialog.showModal();
 }
-$('#provider-form').addEventListener('submit', async event => { event.preventDefault(); try { let headers; try { headers = JSON.parse($('#provider-headers').value || '{}'); } catch { throw new Error('Extra headers must be a JSON object.'); } const payload = { presetId: $('#preset').value, name: $('#provider-form-name').value, baseUrl: $('#provider-base-url').value, auth: $('#provider-auth').value, apiKey: $('#provider-key').value, headers }; const existing = $('#provider-form').dataset.id; const result = existing ? await api(`/api/providers/${existing}`, { method:'PUT', body: JSON.stringify(payload) }) : await api('/api/providers', { method:'POST', body: JSON.stringify(payload) }); if (existing) Object.assign(selected(), result); else { state.data.providers.push(result); state.providerId = result.id; } $('#provider-dialog').close(); render(); toast('Provider saved.'); } catch (error) { toast(error.message); } });
+$('#provider-form').addEventListener('submit', async event => { event.preventDefault(); try { let headers; try { headers = JSON.parse($('#provider-headers').value || '{}'); } catch { throw new Error('Extra headers must be a JSON object.'); } const payload = { presetId: $('#preset').value, name: $('#provider-form-name').value, baseUrl: $('#provider-base-url').value, auth: $('#provider-auth').value, apiKey: $('#provider-key').value, headers }; const existing = $('#provider-form').dataset.id; const result = existing ? await api(`/api/providers/${existing}`, { method:'PUT', body: JSON.stringify(payload) }) : await api('/api/providers', { method:'POST', body: JSON.stringify(payload) }); if (existing) Object.assign(selected(), result); else { state.data.providers.push(result); state.providerId = result.id; } $('#provider-dialog').close(); render(); comparison.providersChanged(); toast('Provider saved.'); } catch (error) { toast(error.message); } });
 $('#provider-dialog').addEventListener('click', event => { if (event.target.value === 'cancel') { event.preventDefault(); $('#provider-dialog').close(); } });
-$('#preset').addEventListener('change', () => { const urls = {ollama:'http://127.0.0.1:11434/v1','9router':'http://127.0.0.1:20128/v1',poolside:'https://inference.poolside.ai/v1',openrouter:'https://openrouter.ai/api/v1','opencode-zen':'https://opencode.ai/zen/v1','opencode-go':'https://opencode.ai/zen/go/v1',clinepass:'https://api.cline.bot/api/v1'}; if (urls[$('#preset').value]) $('#provider-base-url').value = urls[$('#preset').value]; });
+$('#preset').addEventListener('change', () => { const urls = {ollama:'http://127.0.0.1:11434/v1','ollama-cloud':'https://ollama.com/v1','9router':'http://127.0.0.1:20128/v1',poolside:'https://inference.poolside.ai/v1',openrouter:'https://openrouter.ai/api/v1','opencode-zen':'https://opencode.ai/zen/v1','opencode-go':'https://opencode.ai/inference/go/v1',clinepass:'https://api.cline.bot/api/v1'}; if (urls[$('#preset').value]) $('#provider-base-url').value = urls[$('#preset').value]; });
 $('#add-provider').onclick = () => showProvider(); $('#provider-list').ondblclick = () => showProvider(selected());
-$('#delete-provider').onclick = async () => { const provider = selected(); if (!provider || !confirm(`Delete provider “${provider.name}”? This removes its locally stored key.`)) return; try { await api(`/api/providers/${provider.id}`, { method:'DELETE' }); state.data.providers = state.data.providers.filter(item => item.id !== provider.id); state.providerId = state.data.providers[0]?.id; render(); } catch (error) { toast(error.message); } };
+$('#delete-provider').onclick = async () => { const provider = selected(); if (!provider || !confirm(`Delete provider “${provider.name}”? This removes its locally stored key.`)) return; try { await api(`/api/providers/${provider.id}`, { method:'DELETE' }); state.data.providers = state.data.providers.filter(item => item.id !== provider.id); state.providerId = state.data.providers[0]?.id; render(); comparison.providersChanged(); } catch (error) { toast(error.message); } };
 $('#test-provider').onclick = async () => { try { const result = await api(`/api/providers/${state.providerId}/test`, { method:'POST', body:'{}' }); toast(`Connection successful (HTTP ${result.status}).`); } catch (error) { toast(error.message); } };
 $('#refresh-models').onclick = refreshModels; $('#request-form').onsubmit = sendRequest;
 $('#stop').onclick = async () => { state.controller?.abort(); if (state.traceId) await api(`/api/chat/${state.traceId}/cancel`, { method:'POST', body:'{}' }).catch(() => {}); $('#response-status').textContent = 'Cancelled'; };
@@ -87,7 +90,17 @@ $('#toggle-expert').onclick = () => { const wrap = $('#expert-wrap'); wrap.hidde
 $('#expert').oninput = () => { state.expertDirty = true; }; $('#reset-expert').onclick = () => { state.expertDirty = false; $('#expert').value = JSON.stringify(formRequest(), null, 2); };
 $('#image').onchange = event => { const file = event.target.files[0]; if (!file) { state.imageData = ''; return; } if (file.size > 5 * 1024 * 1024) { toast('Images must be 5 MiB or smaller.'); event.target.value = ''; return; } const preview = $('#image-preview'); preview.src = URL.createObjectURL(file); preview.hidden = false; const reader = new FileReader(); reader.onload = () => { state.imageData = reader.result; }; reader.readAsDataURL(file); };
 $('#remote-http').onclick = async () => { const enabled = !state.data.security.allowRemoteHttp; if (enabled && !confirm('Allow remote HTTP? Traffic and credentials may be visible to your network.')) return; try { const next = await api('/api/state', { method:'PUT', body: JSON.stringify({ security:{ allowRemoteHttp: enabled } }) }); state.data = next; render(); } catch (error) { toast(error.message); } };
-document.querySelectorAll('[role="tab"]').forEach(tab => tab.onclick = () => { document.querySelectorAll('[role="tab"]').forEach(item => item.setAttribute('aria-selected', item === tab)); document.querySelectorAll('.tab-panel').forEach(panel => panel.hidden = panel.id !== `${tab.dataset.tab}-panel`); });
+const tabs = [...document.querySelectorAll('[role="tab"]')];
+function activateTab(tab) { tabs.forEach(item => item.setAttribute('aria-selected', item === tab)); document.querySelectorAll('.tab-panel').forEach(panel => panel.hidden = panel.id !== `${tab.dataset.tab}-panel`); if (tab.dataset.tab === 'compare') comparison.opened(); }
+tabs.forEach(tab => tab.onclick = () => activateTab(tab));
+document.querySelector('[role="tablist"]').addEventListener('keydown', event => {
+  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+  event.preventDefault();
+  const selectedIndex = tabs.findIndex(tab => tab.getAttribute('aria-selected') === 'true');
+  const index = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (selectedIndex + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+  tabs[index].focus();
+  activateTab(tabs[index]);
+});
 async function ollama(path, options) { return api(`/api/ollama/${path}`, options); }
 async function refreshOllama() {
   try {
@@ -106,4 +119,4 @@ $('#refresh-ollama').onclick = refreshOllama; $('#start-ollama').onclick = async
 $('#pull-form').onsubmit = async event => { event.preventDefault(); const name = $('#pull-name').value.trim(); if (!confirm(`Pull “${name}” from Ollama? This downloads model files.`)) return; try { await ollama('models/pull', { method:'POST', body:JSON.stringify({name}) }); toast(`Pulled ${name}.`); refreshOllama(); } catch (error) { toast(error.message); } };
 $('#settings-form').onsubmit = async event => { event.preventDefault(); const value = $('#ollama-parallel').value.trim(); try { const result = await ollama('settings', { method:'PUT', body:JSON.stringify({settings:value ? { OLLAMA_NUM_PARALLEL:value } : {}}) }); state.data.ollama = result; toast('Settings saved.'); } catch (error) { toast(error.message); } };
 $('#apply-settings').onclick = async () => { if (!confirm('Apply saved Ollama settings via launchctl? Ollama is not restarted automatically.')) return; try { await ollama('settings/apply-macos', {method:'POST',body:JSON.stringify({confirmed:true})}); toast('Settings applied. Restart Ollama manually.'); } catch (error) { toast(error.message); } };
-(async () => { try { state.data = await api('/api/state', { headers: { 'x-session-token': undefined } }); state.providerId = state.data.providers[0]?.id; $('#connection').innerHTML = '<span></span> Local server ready'; render(); } catch (error) { $('#connection').textContent = `Unavailable: ${error.message}`; toast(error.message); } })();
+(async () => { try { state.data = await api('/api/state', { headers: { 'x-session-token': undefined } }); state.providerId = state.data.providers[0]?.id; $('#connection').innerHTML = '<span></span> Local server ready'; render(); comparison.providersChanged(); } catch (error) { $('#connection').textContent = `Unavailable: ${error.message}`; toast(error.message); } })();

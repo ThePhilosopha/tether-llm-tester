@@ -4,9 +4,13 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomBytes } from 'node:crypto';
 import { spawn } from 'node:child_process';
-import { loadState, publicState, saveState, makeProvider, validateProvider, isLoopbackUrl } from './lib/state.mjs';
-import { forwardSse, maskHeaders } from './lib/sse.mjs';
+import { defaultStatePath, loadState, publicState, saveState, validateProvider, isLoopbackUrl } from './lib/state.mjs';
+import { forwardSse } from './lib/sse.mjs';
+import { appendPath, redactSecrets } from './lib/util.mjs';
 import { runOllama, validateModelName, validateSettings, macosEnvCommands } from './lib/ollama.mjs';
+import { createComparisonStore } from './lib/comparison/store.mjs';
+import { createComparisonRunner } from './lib/comparison/runner.mjs';
+import { comparisonExecutor, handleComparisonRoute } from './lib/comparison/routes.mjs';
 
 const root = dirname(fileURLToPath(import.meta.url));
 const JSON_LIMIT = 8 * 1024 * 1024;
@@ -23,7 +27,6 @@ function requestBody(req) {
     req.on('error', reject);
   });
 }
-function appendPath(base, path) { return new URL(path.replace(/^\//, ''), `${base.replace(/\/$/, '')}/`).toString(); }
 function allowedUpstream(url, allowRemoteHttp) { return url.protocol === 'https:' || isLoopbackUrl(url.toString()) || allowRemoteHttp; }
 function providerHeaders(provider) {
   const headers = { accept: 'application/json', ...provider.headers };
@@ -40,12 +43,13 @@ function extractModels(data, provider) {
   })).filter(model => model.id);
 }
 
-export function createApp({ statePath, publicDir = join(root, 'public') } = {}) {
+export function createApp({ statePath, publicDir = join(root, 'public'), comparisonDir, fetchImpl = fetch } = {}) {
   let state;
   let token = randomBytes(32).toString('base64url');
   const traces = new Map();
   let managedOllama = null;
-  const clients = new Set();
+  let comparisonStore = null;
+  let comparisonRunner = null;
 
   async function persist() { await saveState(state, statePath); }
   function origin(req) { return `http://127.0.0.1:${server.address()?.port}`; }
@@ -79,14 +83,19 @@ export function createApp({ statePath, publicDir = join(root, 'public') } = {}) 
     try {
       const url = route(req), path = url.pathname, mutate = !['GET', 'HEAD'].includes(req.method);
       if (!trusted(req, mutate)) return error(res, 403, 'This local server only accepts same-origin requests on 127.0.0.1 with the active session token.');
+      if (comparisonRunner && await handleComparisonRoute(req, res, {
+        state, store: comparisonStore, runner: comparisonRunner,
+        providerFor, readBody: requestBody, fetchImpl,
+        persist,
+        origin: request => origin(request)
+      })) return;
       if (path === '/' && req.method === 'GET') {
         const html = (await readFile(join(publicDir, 'index.html'), 'utf8')).replace('<!-- SESSION_TOKEN -->', `<meta name="session-token" content="${token}">`);
         res.writeHead(200, { 'content-type': MIME['.html'], 'content-security-policy': "default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; base-uri 'none'; frame-ancestors 'none'", 'cache-control': 'no-store' }); return res.end(html);
       }
-      if (path.startsWith('/assets/') || ['/app.js', '/styles.css'].includes(path)) {
-        const clean = path.replace(/^\//, ''); const file = join(publicDir, clean);
-        if (!file.startsWith(publicDir)) return error(res, 400, 'Invalid asset path.');
-        const ext = clean.slice(clean.lastIndexOf('.')); res.writeHead(200, { 'content-type': MIME[ext] || 'application/octet-stream', 'cache-control': 'no-store' }); return res.end(await readFile(file));
+      if (req.method === 'GET' && /^\/[\w.-]+\.(?:js|css)$/.test(path)) {
+        const ext = path.slice(path.lastIndexOf('.'));
+        res.writeHead(200, { 'content-type': MIME[ext], 'cache-control': 'no-store' }); return res.end(await readFile(join(publicDir, path.slice(1))));
       }
       if (path === '/api/state' && req.method === 'GET') return json(res, 200, publicState(state));
       if (path === '/api/state' && req.method === 'PUT') {
@@ -117,7 +126,7 @@ export function createApp({ statePath, publicDir = join(root, 'public') } = {}) 
         const controller = new AbortController(), traceId = randomBytes(12).toString('hex'); traces.set(traceId, controller);
         const headers = { 'content-type': 'application/json', ...providerHeaders(provider) };
         const response = await upstream(provider, 'chat/completions', { method: 'POST', headers, body: JSON.stringify(body.request), signal: controller.signal });
-        const requestTrace = { type: 'request', traceId, url: appendPath(provider.baseUrl, 'chat/completions'), headers: maskHeaders(headers), body: body.request };
+        const requestTrace = { type: 'request', traceId, url: appendPath(provider.baseUrl, 'chat/completions'), headers: redactSecrets(headers), body: body.request };
         if (!body.request.stream) {
           const raw = await response.text(); traces.delete(traceId); return json(res, response.ok ? 200 : 502, { ...requestTrace, response: { status: response.status, headers: Object.fromEntries(response.headers), raw, body: (() => { try { return JSON.parse(raw); } catch { return null; } })() } });
         }
@@ -131,20 +140,38 @@ export function createApp({ statePath, publicDir = join(root, 'public') } = {}) 
       if (path === '/api/ollama/status' && req.method === 'GET') return proxyOllama(res, 'api/version');
       if (path === '/api/ollama/models' && req.method === 'GET') return proxyOllama(res, 'api/tags');
       if (path === '/api/ollama/running' && req.method === 'GET') return proxyOllama(res, 'api/ps');
-      if (path === '/api/ollama/models/show' && req.method === 'POST') { const { name } = await requestBody(req); validateModelName(name); return proxyOllama(res, 'api/show', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name }) }); }
       if (path === '/api/ollama/models/pull' && req.method === 'POST') { const { name } = await requestBody(req); validateModelName(name); return proxyOllama(res, 'api/pull', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name, stream: false }) }); }
       if (path === '/api/ollama/models' && req.method === 'DELETE') { const { name, confirmed } = await requestBody(req); validateModelName(name); if (confirmed !== true) return error(res, 400, 'Deleting a model requires explicit confirmation.'); return proxyOllama(res, 'api/delete', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name }) }); }
       if (path === '/api/ollama/models/stop' && req.method === 'POST') { const { name, confirmed } = await requestBody(req); validateModelName(name); if (confirmed !== true) return error(res, 400, 'Stopping a model requires explicit confirmation.'); await ollama('api/version'); return json(res, 200, await runOllama(['stop', name])); }
       if (path === '/api/ollama/process/start' && req.method === 'POST') { const { confirmed } = await requestBody(req); if (confirmed !== true) return error(res, 400, 'Starting Ollama requires explicit confirmation.'); if (!managedOllama) managedOllama = spawn('ollama', ['serve'], { shell: false, stdio: 'ignore', env: { ...process.env, OLLAMA_HOST: '127.0.0.1:11434' } }); return json(res, 200, { managed: true }); }
-      if (path === '/api/ollama/process/restart' && req.method === 'POST') { const { confirmed } = await requestBody(req); if (confirmed !== true) return error(res, 400, 'Restarting managed Ollama requires explicit confirmation.'); managedOllama?.kill(); managedOllama = spawn('ollama', ['serve'], { shell: false, stdio: 'ignore', env: { ...process.env, OLLAMA_HOST: '127.0.0.1:11434' } }); return json(res, 200, { managed: true }); }
       if (path === '/api/ollama/settings' && req.method === 'PUT') { const { settings } = await requestBody(req); state.ollama.settings = validateSettings(settings); await persist(); return json(res, 200, publicState(state).ollama); }
       if (path === '/api/ollama/settings/apply-macos' && req.method === 'POST') { const { confirmed } = await requestBody(req); if (confirmed !== true) return error(res, 400, 'Applying macOS settings requires explicit confirmation.'); if (process.platform !== 'darwin') return error(res, 400, 'macOS settings are unavailable on this platform.'); for (const args of macosEnvCommands(state.ollama.settings)) await new Promise((resolve, reject) => { const child = spawn('launchctl', args, { shell: false }); child.on('error', reject); child.on('close', code => code === 0 ? resolve() : reject(new Error(`launchctl exited with ${code}`))); }); return json(res, 200, { applied: true, restartRequired: true }); }
       return error(res, 404, 'Route not found.');
     } catch (caught) { return error(res, 400, caught.name === 'AbortError' ? 'Request cancelled.' : caught.message); }
   });
   return {
-    async start(port = 8787) { state = await loadState(statePath); await new Promise(resolve => server.listen(port, '127.0.0.1', resolve)); return server.address(); },
-    async close() { managedOllama?.kill(); for (const client of clients) client.destroy(); await new Promise(resolve => server.close(resolve)); },
+    async start(port = 8787) {
+      state = await loadState(statePath);
+      const rootPath = comparisonDir || join(dirname(statePath || defaultStatePath), 'comparisons');
+      comparisonStore = await createComparisonStore(rootPath);
+      await comparisonStore.recoverInterrupted();
+      comparisonRunner = createComparisonRunner({
+        store: comparisonStore,
+        resolveProvider: async id => {
+          const provider = providerFor(id);
+          if (!provider) throw new Error('Selected provider was removed.');
+          return { ...provider, allowRemoteHttp: state.security.allowRemoteHttp === true };
+        },
+        executeModel: comparisonExecutor(fetchImpl)
+      });
+      await new Promise(resolve => server.listen(port, '127.0.0.1', resolve));
+      return server.address();
+    },
+    async close() {
+      await comparisonRunner?.close();
+      managedOllama?.kill();
+      await new Promise(resolve => server.close(resolve));
+    },
     get token() { return token; },
     get state() { return state; }
   };
