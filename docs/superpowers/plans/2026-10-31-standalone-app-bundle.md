@@ -1,6 +1,6 @@
 # Standalone macOS app bundle plan
 
-Package the LLM Tester as a double-clickable `.app` that runs without `npm start`.
+Package the Tether LLM Tester as a double-clickable `.app` that runs without `npm start`.
 Pake supplies the window; the Node server ships inside the bundle as a Node SEA binary;
 a shell launcher starts the server, waits for the port, then execs the Pake binary.
 
@@ -25,7 +25,7 @@ Evidence already gathered (controller, before this plan):
 - No new runtime dependency in `package.json`. `postject` and the client build are invoked via `npx`/scripts.
 - The server keeps binding `127.0.0.1` only. The CSP string, the session-token check and the
   same-origin mutation rule must not change.
-- State, comparisons, skills and the MCP audit stay in `~/Library/Application Support/LLM Tester/`,
+- State, comparisons, skills and the MCP audit stay in `~/Library/Application Support/Tether LLM Tester/`,
   shared with `npm start`.
 - Local models are never used for testing, verification or demos.
 - Signing is ad-hoc (`codesign --sign -`). Developer ID/notarisation is out of scope.
@@ -69,7 +69,7 @@ Acceptance:
 Sequence:
 1. `npm --prefix client run build`.
 2. Build the SEA binary via `scripts/build-sea.mjs`.
-3. If `build/pake/LLM Tester.app` is absent, run `npx --yes pake-cli@3.17.8 "http://127.0.0.1:8787" --name "LLM Tester" --identifier local.llm-tester --icon assets/llm-api-debugger-icon.icns --width 1280 --height 900 --dark-mode --enable-find --json` and move the produced app into `build/pake/`.
+3. If `build/pake/Tether LLM Tester.app` is absent, run `npx --yes pake-cli@3.17.8 "http://127.0.0.1:8787" --name "Tether LLM Tester" --identifier com.tetherlab.llm-tester --icon assets/llm-api-debugger-icon.icns --width 1280 --height 900 --dark-mode --enable-find --json` and move the produced app into `build/pake/`.
 4. Inside a copy of the Pake app: rename `Contents/MacOS/<original executable>` to `window`, write a
    POSIX `sh` launcher at the original executable path that resolves `Contents/Resources`, starts
    `server`, polls `http://127.0.0.1:8787/api/state` until 200 or 20s, then `exec`s `window`; on timeout
@@ -78,6 +78,6 @@ Sequence:
 5. `codesign --force --deep --sign -` the app, then `hdiutil create` a compressed DMG into `build/`.
 
 Acceptance:
-- `node scripts/build-app.mjs` produces `build/LLM Tester.app` and `build/LLM Tester.dmg`.
-- `mdls -name kMDItemCFBundleIdentifier` reports `local.llm-tester`.
+- `node scripts/build-app.mjs` produces `build/Tether LLM Tester.app` and `build/Tether LLM Tester.dmg`.
+- `mdls -name kMDItemCFBundleIdentifier` reports `com.tetherlab.llm-tester`.
 - Each step prints what it ran and fails loudly.

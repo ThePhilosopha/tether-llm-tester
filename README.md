@@ -1,10 +1,10 @@
-# LLM Tester
+# Tether LLM Tester
 
 A local-first workbench for inspecting, comparing and auditing language models. Every request passes
 through your own machine, so the exact request body, the masked headers and the raw upstream response
 stay readable.
 
-![LLM Tester icon](client/src/assets/icon.svg)
+![Tether LLM Tester icon](client/src/assets/icon.svg)
 
 ## What it does
 
@@ -31,7 +31,7 @@ npm start          # builds the client, then serves http://127.0.0.1:8787
 ```
 
 Open `http://127.0.0.1:8787` and add a provider in **Settings**. Keys are written to
-`~/Library/Application Support/LLM Tester/state.json` at mode `0600`.
+`~/Library/Application Support/Tether LLM Tester/state.json` at mode `0600`.
 
 Other scripts:
 
@@ -57,7 +57,7 @@ explicitly in **Settings**.
 node scripts/build-app.mjs
 ```
 
-This produces `build/LLM Tester.app` and `build/LLM Tester.dmg`. The bundle carries its own server, built
+This produces `build/Tether LLM Tester.app` and `build/Tether LLM Tester.dmg`. The bundle carries its own server, built
 as a Node single-executable binary (`scripts/build-sea.mjs`), plus the client build. A small launcher
 starts that server on `127.0.0.1:8787`, waits for it, then opens the window. Launching the app does not
 require `npm start` or a terminal.
@@ -85,10 +85,10 @@ traffic goes only to the provider you configure.
 
 | What | Where |
 |---|---|
-| Provider keys, settings, MCP servers | `~/Library/Application Support/LLM Tester/state.json` (0600) |
-| Comparison runs and saved cases | `.../LLM Tester/comparisons/` |
-| Imported skills | `.../LLM Tester/skills/` |
-| MCP audit log | `.../LLM Tester/mcp-audit.json` (0600) |
+| Provider keys, settings, MCP servers | `~/Library/Application Support/Tether LLM Tester/state.json` (0600) |
+| Comparison runs and saved cases | `.../Tether LLM Tester/comparisons/` |
+| Imported skills | `.../Tether LLM Tester/skills/` |
+| MCP audit log | `.../Tether LLM Tester/mcp-audit.json` (0600) |
 
 Delete that folder to reset the app.
 

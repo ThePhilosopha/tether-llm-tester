@@ -31,7 +31,7 @@ before(async () => {
   });
   await new Promise(resolve => upstream.listen(0, '127.0.0.1', resolve));
   upstreamBase = `http://127.0.0.1:${upstream.address().port}/v1`;
-  const dir = await mkdtemp(join(tmpdir(), 'llm-debugger-')); statePath = join(dir, 'state.json');
+  const dir = await mkdtemp(join(tmpdir(), 'tether-llm-tester-')); statePath = join(dir, 'state.json');
   app = createApp({ statePath }); const address = await app.start(0); base = `http://127.0.0.1:${address.port}`;
 });
 after(async () => { await app.close(); await new Promise(resolve => upstream.close(resolve)); });

@@ -1,8 +1,8 @@
-# LLM Tester — next session
+# Tether LLM Tester — next session
 
 ## Goal
 
-Complete the LLM Tester and Skill Auditor so every acceptance criterion in the original brief is met and
+Complete the Tether LLM Tester and Skill Auditor so every acceptance criterion in the original brief is met and
 verifiable: LLM transparency, MCP auditing, and skill auditing with cross-model execution, all exposed
 through the React client that now ships in `client/`.
 

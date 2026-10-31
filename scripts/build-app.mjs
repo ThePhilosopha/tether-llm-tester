@@ -8,9 +8,9 @@ import { fileURLToPath } from 'node:url';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const build = join(root, 'build');
 const pakeDir = join(build, 'pake');
-const appName = 'LLM Tester.app';
+const appName = 'Tether LLM Tester.app';
 const app = join(build, appName);
-const dmg = join(build, 'LLM Tester.dmg');
+const dmg = join(build, 'Tether LLM Tester.dmg');
 
 function run(label, command, args, options = {}) {
   console.log(`${label}: ${command} ${args.join(' ')}`);
@@ -81,7 +81,7 @@ function buildPake() {
     return;
   }
   mkdirSync(pakeDir, { recursive: true });
-  const cachedDmg = join(pakeDir, 'LLM Tester.dmg');
+  const cachedDmg = join(pakeDir, 'Tether LLM Tester.dmg');
   if (existsSync(cachedDmg)) {
     console.log(`Reusing ${cachedDmg}`);
   } else {
@@ -89,10 +89,10 @@ function buildPake() {
     rmSync(app, { recursive: true, force: true });
     rmSync(dmg, { force: true });
     run('Building Pake window', 'npx', ['--yes', 'pake-cli@3.17.8', 'http://127.0.0.1:8787',
-      '--name', 'LLM Tester', '--identifier', 'local.llm-tester',
+      '--name', 'Tether LLM Tester', '--identifier', 'com.tetherlab.llm-tester',
       '--icon', join(root, 'assets', 'llm-api-debugger-icon.icns'),
       '--width', '1280', '--height', '900', '--dark-mode', '--enable-find', '--json'], { cwd: build });
-    for (const name of [appName, 'LLM Tester.dmg']) {
+    for (const name of [appName, 'Tether LLM Tester.dmg']) {
       const produced = findProduced(name);
       if (produced) {
         renameSync(produced, join(pakeDir, name));
@@ -101,7 +101,7 @@ function buildPake() {
     }
   }
   if (!existsSync(cached)) {
-    if (!existsSync(cachedDmg)) fail('Building Pake window', `pake-cli produced neither ${appName} nor LLM Tester.dmg under ${build}`);
+    if (!existsSync(cachedDmg)) fail('Building Pake window', `pake-cli produced neither ${appName} nor Tether LLM Tester.dmg under ${build}`);
     extractApp(cachedDmg);
   }
 }
@@ -159,14 +159,14 @@ start_server() {
       # A listener that is already shutting down keeps its socket entry for a moment after
       # its process exits. Only a live process is a real conflict.
       if /bin/ps -p "$OWNER" >/dev/null 2>&1; then
-        osascript -e 'display alert "LLM Tester" message "Port 8787 is already in use. Quit the other copy and try again."' >/dev/null 2>&1
+        osascript -e 'display alert "Tether LLM Tester" message "Port 8787 is already in use. Quit the other copy and try again."' >/dev/null 2>&1
         return 1
       fi
     fi
     i=$((i + 1))
     sleep 0.5
   done
-  osascript -e 'display alert "LLM Tester" message "The local server did not start on port 8787."' >/dev/null 2>&1
+  osascript -e 'display alert "Tether LLM Tester" message "The local server did not start on port 8787."' >/dev/null 2>&1
   return 2
 }
 
@@ -210,7 +210,7 @@ function signApp() {
 
 function createDmg() {
   rmSync(dmg, { force: true });
-  run('Creating DMG', 'hdiutil', ['create', '-volname', 'LLM Tester', '-srcfolder', app,
+  run('Creating DMG', 'hdiutil', ['create', '-volname', 'Tether LLM Tester', '-srcfolder', app,
     '-ov', '-format', 'UDZO', dmg]);
   console.log(`Created ${dmg}`);
 }

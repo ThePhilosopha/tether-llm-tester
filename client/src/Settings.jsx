@@ -193,17 +193,17 @@ export default function Settings({ state, onStateChange }) {
             <tbody>
               <tr>
                 <td>State file</td>
-                <td className="mono truncate">~/Library/Application Support/LLM Tester/state.json</td>
+                <td className="mono truncate">~/Library/Application Support/Tether LLM Tester/state.json</td>
                 <td>Provider definitions, credentials, the remote HTTP flag</td>
               </tr>
               <tr>
                 <td>Comparisons</td>
-                <td className="mono truncate">~/Library/Application Support/LLM Tester/comparisons/</td>
+                <td className="mono truncate">~/Library/Application Support/Tether LLM Tester/comparisons/</td>
                 <td>Versioned cases and every comparison run</td>
               </tr>
               <tr>
                 <td>Skills</td>
-                <td className="mono truncate">~/Library/Application Support/LLM Tester/skills/</td>
+                <td className="mono truncate">~/Library/Application Support/Tether LLM Tester/skills/</td>
                 <td>Imported skill files you have edited</td>
               </tr>
             </tbody>
