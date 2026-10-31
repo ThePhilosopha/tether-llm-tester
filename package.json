@@ -5,6 +5,10 @@
   "type": "module",
   "scripts": {
     "start": "node server.mjs",
-    "test": "node --test"
+    "test": "node --test",
+    "build": "npm --prefix client run build",
+    "build:watch": "npm --prefix client run build -- --watch",
+    "dev": "npm --prefix client run dev",
+    "prestart": "npm run build"
   }
 }

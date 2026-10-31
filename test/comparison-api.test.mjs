@@ -96,18 +96,23 @@ test('comparison API enforces the existing local mutation token', async () => {
   assert.equal(response.status, 403);
 });
 
-test('serves the Compare workspace and module under the existing CSP', async () => {
+test('serves the React client shell with the session token and a self-only CSP', async () => {
   const page = await fetch(base);
   const html = await page.text();
-  assert.match(html, /data-tab="compare"/);
-  assert.match(html, /id="compare-panel"/);
+  assert.match(html, /<div id="root">/);
+  assert.match(html, /<meta name="session-token" content="[\w-]+">/);
   assert.match(page.headers.get('content-security-policy'), /script-src 'self'/);
-  assert.match(html, /<div[^>]*id="compare-form"[^>]*>/);
-  assert.match(html, /<form id="case-editor-form"/);
-  assert.match(html, /id="compare-run"[^>]*type="button"|type="button"[^>]*id="compare-run"/);
-  const module = await fetch(`${base}/compare.js`);
+  assert.match(page.headers.get('content-security-policy'), /font-src 'self'/);
+  const script = html.match(/src="(\/assets\/index[-\w]*\.js)"/);
+  assert.ok(script, 'the built client script is referenced');
+  const module = await fetch(`${base}${script[1]}`);
   assert.equal(module.status, 200);
   assert.match(module.headers.get('content-type'), /javascript/);
+  const stylesheet = html.match(/href="(\/assets\/index[-\w]*\.css)"/);
+  assert.ok(stylesheet, 'the built client stylesheet is referenced');
+  const css = await fetch(`${base}${stylesheet[1]}`);
+  assert.equal(css.status, 200);
+  assert.match(css.headers.get('content-type'), /text\/css/);
 });
 
 test('saves an explicit protocol mapping for a Go model without inferring from its name', async () => {

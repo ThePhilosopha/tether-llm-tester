@@ -1,0 +1,136 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="plate" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1b1e26"/>
+      <stop offset="1" stop-color="#0b0d12"/>
+    </linearGradient>
+    <linearGradient id="plateRim" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#3a4050"/>
+      <stop offset="1" stop-color="#20242e"/>
+    </linearGradient>
+    <linearGradient id="cubeTop" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4a515f"/>
+      <stop offset="1" stop-color="#252a33"/>
+    </linearGradient>
+    <linearGradient id="cubeLeft" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2f353f"/>
+      <stop offset="1" stop-color="#161a21"/>
+    </linearGradient>
+    <linearGradient id="cubeRight" x1="1" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#3b424e"/>
+      <stop offset="1" stop-color="#1c212a"/>
+    </linearGradient>
+    <filter id="greenGlow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="14" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="orangeGlow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="13" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="softShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="10" stdDeviation="18" flood-color="#000000" flood-opacity="0.55"/>
+    </filter>
+  </defs>
+
+  <!-- plate -->
+  <rect x="60" y="60" width="904" height="904" rx="216" fill="url(#plate)"/>
+  <rect x="60" y="60" width="904" height="904" rx="216" fill="none" stroke="url(#plateRim)" stroke-width="10"/>
+
+  <!-- connectors -->
+  <g stroke-linecap="round" fill="none">
+    <path d="M512 470 V352" stroke="#3fd97a" stroke-width="12" filter="url(#greenGlow)"/>
+    <path d="M430 520 L318 466" stroke="#ff8a1f" stroke-width="12" filter="url(#orangeGlow)"/>
+    <path d="M594 520 L706 466" stroke="#ff8a1f" stroke-width="12" filter="url(#orangeGlow)"/>
+    <path d="M446 566 L348 640" stroke="#3fd97a" stroke-width="12" filter="url(#greenGlow)"/>
+  </g>
+
+  <!-- junction dots -->
+  <circle cx="512" cy="352" r="17" fill="#3fd97a" filter="url(#greenGlow)"/>
+  <circle cx="318" cy="466" r="17" fill="#ff8a1f" filter="url(#orangeGlow)"/>
+  <circle cx="706" cy="466" r="17" fill="#ff8a1f" filter="url(#orangeGlow)"/>
+  <circle cx="348" cy="640" r="17" fill="#3fd97a" filter="url(#greenGlow)"/>
+
+  <!-- central cube -->
+  <g filter="url(#softShadow)">
+    <path d="M512 404 L640 480 L512 556 L384 480 Z" fill="url(#cubeTop)"/>
+    <path d="M384 480 L512 556 L512 700 L384 624 Z" fill="url(#cubeLeft)"/>
+    <path d="M640 480 L512 556 L512 700 L640 624 Z" fill="url(#cubeRight)"/>
+  </g>
+  <g fill="none" stroke="#3fd97a" stroke-width="9" stroke-linejoin="round" filter="url(#greenGlow)" opacity="0.92">
+    <path d="M512 404 L640 480 L512 556 L384 480 Z"/>
+    <path d="M384 480 V624 L512 700 V556"/>
+    <path d="M640 480 V624 L512 700"/>
+  </g>
+
+  <!-- top node: robot -->
+  <g>
+    <circle cx="512" cy="228" r="86" fill="#10141b" stroke="#3fd97a" stroke-width="9" filter="url(#greenGlow)"/>
+    <g stroke="#3fd97a" stroke-width="9" stroke-linecap="round" fill="none">
+      <path d="M512 118 V142"/>
+      <rect x="472" y="196" width="80" height="56" rx="22"/>
+      <circle cx="496" cy="224" r="6" fill="#3fd97a"/>
+      <circle cx="528" cy="224" r="6" fill="#3fd97a"/>
+    </g>
+    <circle cx="512" cy="118" r="9" fill="#3fd97a" filter="url(#greenGlow)"/>
+  </g>
+
+  <!-- left node: gear -->
+  <g>
+    <circle cx="228" cy="466" r="80" fill="#14100c" stroke="#ff8a1f" stroke-width="9" filter="url(#orangeGlow)"/>
+    <g fill="none" stroke="#ff8a1f" stroke-width="13" stroke-linejoin="round">
+      <circle cx="228" cy="466" r="30"/>
+      <path d="M228 412 V392 M228 520 V540 M174 466 H154 M302 466 H282 M191 429 L176 414 M265 503 L280 518 M265 429 L280 414 M191 503 L176 518"/>
+    </g>
+  </g>
+
+  <!-- right node: database -->
+  <g>
+    <circle cx="796" cy="466" r="80" fill="#14100c" stroke="#ff8a1f" stroke-width="9" filter="url(#orangeGlow)"/>
+    <g fill="none" stroke="#ff8a1f" stroke-width="12">
+      <ellipse cx="796" cy="432" rx="34" ry="15"/>
+      <path d="M762 432 V496 M830 432 V496"/>
+      <ellipse cx="796" cy="466" rx="34" ry="15"/>
+      <path d="M762 466 V500 C762 509 777 516 796 516 C815 516 830 509 830 500 V466"/>
+    </g>
+  </g>
+
+  <!-- lower left node: wrench and spanner -->
+  <g>
+    <circle cx="248" cy="716" r="80" fill="#10141b" stroke="#3fd97a" stroke-width="9" filter="url(#greenGlow)"/>
+    <g fill="none" stroke="#3fd97a" stroke-width="12" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M212 754 L272 694"/>
+      <path d="M262 686 A24 24 0 1 1 278 726 L266 714 A16 16 0 0 0 254 698 Z"/>
+    </g>
+    <g fill="none" stroke="#3fd97a" stroke-width="11" stroke-linecap="round">
+      <path d="M222 748 L238 734"/>
+      <path d="M244 766 L260 752"/>
+    </g>
+  </g>
+
+  <!-- checklist panel -->
+  <g filter="url(#softShadow)">
+    <rect x="536" y="580" width="300" height="270" rx="36" fill="#12161d" stroke="#3fd97a" stroke-width="8"/>
+  </g>
+  <g fill="none" stroke="#3fd97a" stroke-width="11" stroke-linecap="round" stroke-linejoin="round" filter="url(#greenGlow)">
+    <path d="M520 616 V576 H560"/>
+    <path d="M852 616 V576 H812"/>
+    <path d="M520 814 V854 H560"/>
+    <path d="M852 814 V854 H812"/>
+  </g>
+  <g>
+    <rect x="576" y="628" width="34" height="34" rx="8" fill="#3fd97a"/>
+    <path d="M584 645 L594 655 L604 636" fill="none" stroke="#0d1016" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="632" y="634" width="150" height="12" rx="6" fill="#8f96a3"/>
+    <rect x="632" y="652" width="110" height="10" rx="5" fill="#5b6270"/>
+
+    <rect x="576" y="686" width="34" height="34" rx="8" fill="#3fd97a"/>
+    <path d="M584 703 L594 713 L604 694" fill="none" stroke="#0d1016" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="632" y="692" width="150" height="12" rx="6" fill="#8f96a3"/>
+    <rect x="632" y="710" width="110" height="10" rx="5" fill="#5b6270"/>
+
+    <rect x="576" y="744" width="34" height="34" rx="8" fill="none" stroke="#6d7482" stroke-width="8"/>
+    <rect x="632" y="750" width="150" height="12" rx="6" fill="#8f96a3"/>
+    <rect x="632" y="768" width="110" height="10" rx="5" fill="#5b6270"/>
+  </g>
+</svg>

@@ -11,10 +11,27 @@ import { runOllama, validateModelName, validateSettings, macosEnvCommands } from
 import { createComparisonStore } from './lib/comparison/store.mjs';
 import { createComparisonRunner } from './lib/comparison/runner.mjs';
 import { comparisonExecutor, handleComparisonRoute } from './lib/comparison/routes.mjs';
+import { inspectModel } from './lib/llm/modelfile.mjs';
+import { parseParameters, describeProvenance, applyThinking } from './lib/llm/parameters.mjs';
+import { createSkillStore } from './lib/skills/store.mjs';
+import { handleSkillRoute } from './lib/skills/routes.mjs';
 
 const root = dirname(fileURLToPath(import.meta.url));
 const JSON_LIMIT = 8 * 1024 * 1024;
-const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8' };
+const MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+  '.png': 'image/png',
+  '.ico': 'image/x-icon',
+  '.webmanifest': 'application/manifest+json'
+};
+const CSP = "default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self'; font-src 'self'; script-src 'self'; base-uri 'none'; frame-ancestors 'none'";
+const CLIENT_DIR = join(root, 'client', 'dist');
 
 function json(res, status, body) { res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }); res.end(JSON.stringify(body)); }
 function error(res, status, message) { json(res, status, { error: message }); }
@@ -43,13 +60,14 @@ function extractModels(data, provider) {
   })).filter(model => model.id);
 }
 
-export function createApp({ statePath, publicDir = join(root, 'public'), comparisonDir, fetchImpl = fetch } = {}) {
+export function createApp({ statePath, comparisonDir, fetchImpl = fetch, clientDir = CLIENT_DIR } = {}) {
   let state;
   let token = randomBytes(32).toString('base64url');
   const traces = new Map();
   let managedOllama = null;
   let comparisonStore = null;
   let comparisonRunner = null;
+  let skillStore = null;
 
   async function persist() { await saveState(state, statePath); }
   function origin(req) { return `http://127.0.0.1:${server.address()?.port}`; }
@@ -89,13 +107,20 @@ export function createApp({ statePath, publicDir = join(root, 'public'), compari
         persist,
         origin: request => origin(request)
       })) return;
+      if (skillStore && await handleSkillRoute(req, res, {
+        state, skillStore, providerFor, readBody: requestBody, fetchImpl,
+        origin: request => origin(request)
+      })) return;
       if (path === '/' && req.method === 'GET') {
-        const html = (await readFile(join(publicDir, 'index.html'), 'utf8')).replace('<!-- SESSION_TOKEN -->', `<meta name="session-token" content="${token}">`);
-        res.writeHead(200, { 'content-type': MIME['.html'], 'content-security-policy': "default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; base-uri 'none'; frame-ancestors 'none'", 'cache-control': 'no-store' }); return res.end(html);
+        const html = await readFile(join(clientDir, 'index.html'), 'utf8');
+        res.writeHead(200, { 'content-type': MIME['.html'], 'content-security-policy': CSP, 'cache-control': 'no-store' });
+        return res.end(html.replace('<!-- SESSION_TOKEN -->', `<meta name="session-token" content="${token}">`));
       }
-      if (req.method === 'GET' && /^\/[\w.-]+\.(?:js|css)$/.test(path)) {
+      if (req.method === 'GET' && /^\/assets\/[\w.-]+\.[a-z0-9]+$/.test(path)) {
+        const file = join(clientDir, path.slice(1));
         const ext = path.slice(path.lastIndexOf('.'));
-        res.writeHead(200, { 'content-type': MIME[ext], 'cache-control': 'no-store' }); return res.end(await readFile(join(publicDir, path.slice(1))));
+        res.writeHead(200, { 'content-type': MIME[ext] || 'application/octet-stream', 'cache-control': 'no-store' });
+        return res.end(await readFile(file));
       }
       if (path === '/api/state' && req.method === 'GET') return json(res, 200, publicState(state));
       if (path === '/api/state' && req.method === 'PUT') {
@@ -124,9 +149,19 @@ export function createApp({ statePath, publicDir = join(root, 'public'), compari
         const body = await requestBody(req), provider = providerFor(body.providerId); if (!provider) return error(res, 404, 'Provider not found.');
         if (!body.request || typeof body.request !== 'object') return error(res, 400, 'A chat request object is required.');
         const controller = new AbortController(), traceId = randomBytes(12).toString('hex'); traces.set(traceId, controller);
+        const { parsed, rejected } = parseParameters(body.parameters);
+        for (const [name, value] of Object.entries(parsed)) {
+          if (name in body.request) continue;
+          const wire = name === 'maxOutputTokens' ? 'max_tokens' : name === 'topP' ? 'top_p' : name === 'topK' ? 'top_k'
+            : name === 'frequencyPenalty' ? 'frequency_penalty' : name === 'presencePenalty' ? 'presence_penalty'
+            : name === 'responseFormat' ? 'response_format' : name;
+          body.request[wire] = value;
+        }
+        applyThinking(body.request, 'chat-completions', body.thinking);
+        const provenance = describeProvenance(parsed, body.thinking, rejected);
         const headers = { 'content-type': 'application/json', ...providerHeaders(provider) };
         const response = await upstream(provider, 'chat/completions', { method: 'POST', headers, body: JSON.stringify(body.request), signal: controller.signal });
-        const requestTrace = { type: 'request', traceId, url: appendPath(provider.baseUrl, 'chat/completions'), headers: redactSecrets(headers), body: body.request };
+        const requestTrace = { type: 'request', traceId, url: appendPath(provider.baseUrl, 'chat/completions'), headers: redactSecrets(headers), body: body.request, provenance };
         if (!body.request.stream) {
           const raw = await response.text(); traces.delete(traceId); return json(res, response.ok ? 200 : 502, { ...requestTrace, response: { status: response.status, headers: Object.fromEntries(response.headers), raw, body: (() => { try { return JSON.parse(raw); } catch { return null; } })() } });
         }
@@ -142,6 +177,14 @@ export function createApp({ statePath, publicDir = join(root, 'public'), compari
       if (path === '/api/ollama/status' && req.method === 'GET') return proxyOllama(res, 'api/version');
       if (path === '/api/ollama/models' && req.method === 'GET') return proxyOllama(res, 'api/tags');
       if (path === '/api/ollama/running' && req.method === 'GET') return proxyOllama(res, 'api/ps');
+      const inspectMatch = path.match(/^\/api\/providers\/([^/]+)\/model-inspection$/);
+      if (inspectMatch && req.method === 'GET') {
+        const provider = providerFor(decodeURIComponent(inspectMatch[1]));
+        if (!provider) return error(res, 404, 'Provider not found.');
+        const modelId = url.searchParams.get('modelId');
+        if (!modelId) return error(res, 400, 'A model ID is required.');
+        return json(res, 200, await inspectModel(provider, modelId, { fetchImpl }));
+      }
       if (path === '/api/ollama/models/pull' && req.method === 'POST') { const { name } = await requestBody(req); validateModelName(name); return proxyOllama(res, 'api/pull', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name, stream: false }) }); }
       if (path === '/api/ollama/models' && req.method === 'DELETE') { const { name, confirmed } = await requestBody(req); validateModelName(name); if (confirmed !== true) return error(res, 400, 'Deleting a model requires explicit confirmation.'); return proxyOllama(res, 'api/delete', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name }) }); }
       if (path === '/api/ollama/models/stop' && req.method === 'POST') { const { name, confirmed } = await requestBody(req); validateModelName(name); if (confirmed !== true) return error(res, 400, 'Stopping a model requires explicit confirmation.'); await ollama('api/version'); return json(res, 200, await runOllama(['stop', name])); }
@@ -160,6 +203,7 @@ export function createApp({ statePath, publicDir = join(root, 'public'), compari
       const rootPath = comparisonDir || join(dirname(statePath || defaultStatePath), 'comparisons');
       comparisonStore = await createComparisonStore(rootPath);
       await comparisonStore.recoverInterrupted();
+      skillStore = await createSkillStore(join(dirname(rootPath), 'skills'));
       comparisonRunner = createComparisonRunner({
         store: comparisonStore,
         resolveProvider: async id => {
