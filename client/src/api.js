@@ -11,7 +11,12 @@ async function request(path, { method = 'GET', body, signal } = {}) {
     body: body ? JSON.stringify(body) : undefined
   });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
+  if (!response.ok) {
+    const failure = new Error(data.error || `Request failed (${response.status})`);
+    if (data.authorizeUrl) failure.authorizeUrl = data.authorizeUrl;
+    if (data.oauth) failure.oauth = data.oauth;
+    throw failure;
+  }
   return data;
 }
 
@@ -58,7 +63,16 @@ export const api = {
   skill: (slug) => request(`/api/skills/${encodeURIComponent(slug)}`),
   saveSkill: (slug, source) => request(`/api/skills/${encodeURIComponent(slug)}`, { method: 'PUT', body: { source } }),
   explainSkill: (slug, body) => request(`/api/skills/${encodeURIComponent(slug)}/explain`, { method: 'POST', body }),
-  runSkill: (slug, body) => request(`/api/skills/${encodeURIComponent(slug)}/run`, { method: 'POST', body })
+  runSkill: (slug, body) => request(`/api/skills/${encodeURIComponent(slug)}/run`, { method: 'POST', body }),
+
+  mcpServers: () => request('/api/mcp/servers'),
+  addMcpServer: (body) => request('/api/mcp/servers', { method: 'POST', body }),
+  deleteMcpServer: (id) => request(`/api/mcp/servers/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  connectMcpServer: (id) => request(`/api/mcp/servers/${encodeURIComponent(id)}/connect`, { method: 'POST', body: {} }),
+  mcpTools: (id) => request(`/api/mcp/servers/${encodeURIComponent(id)}/tools`),
+  callMcpTool: (id, name, args) => request(`/api/mcp/servers/${encodeURIComponent(id)}/tools/${encodeURIComponent(name)}/call`, { method: 'POST', body: { arguments: args } }),
+  authorizeMcpServer: (id) => request(`/api/mcp/servers/${encodeURIComponent(id)}/authorize`, { method: 'POST', body: {} }),
+  mcpAudit: () => request('/api/mcp/audit')
 };
 
 export async function streamNdjson(url, options, onEvent) {

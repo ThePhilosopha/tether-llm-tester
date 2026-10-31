@@ -112,7 +112,11 @@ export default function Models({ providers, providerId }) {
         <section className="panel">
           <header>
             <h2>{inspected.modelId}</h2>
-            <span className="meta">{inspected.source === 'none' ? 'No native metadata' : 'Ollama native API'}</span>
+            <span className="meta">
+              {inspected.source === 'ollama-native' ? 'Ollama native API'
+                : inspected.source === 'provider-catalogue' ? 'Provider catalogue'
+                  : 'No native metadata'}
+            </span>
           </header>
           {inspected.gaps?.length > 0 && (
             <ul className="m-0 mb-4 pl-5 text-ink-soft" style={{ fontSize: 'var(--fs-small)' }}>
@@ -136,6 +140,55 @@ export default function Models({ providers, providerId }) {
                 {inspected.fields.modelfile}
               </pre>
             </details>
+          )}
+          {inspected.catalogue && (
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <h3 className="mb-2 text-sm font-semibold">Declared parameters</h3>
+                {inspected.catalogue.supportedParameters.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {inspected.catalogue.supportedParameters.map(name => (
+                      <span key={name} className="pill">{name}</span>
+                    ))}
+                  </div>
+                ) : inspected.catalogue.declaredCapabilities ? (
+                  <div className="flex flex-wrap gap-2">
+                    {Object.entries(inspected.catalogue.declaredCapabilities).map(([name, value]) => (
+                      <span key={name} className="pill">{name} {String(value)}</span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-ink-soft" style={{ fontSize: 'var(--fs-small)' }}>
+                    The provider catalogue declares no supported parameters for this model.
+                  </p>
+                )}
+              </div>
+              <div>
+                <h3 className="mb-2 text-sm font-semibold">Catalogue entry</h3>
+                {inspected.catalogue.entry ? (
+                  <dl className="grid gap-1" style={{ fontSize: 'var(--fs-small)' }}>
+                    {[
+                      ['Name', inspected.catalogue.entry.name],
+                      ['Owner', inspected.catalogue.entry.ownedBy],
+                      ['Architecture', inspected.catalogue.entry.architecture],
+                      ['Context', inspected.catalogue.context],
+                      ['Max output', inspected.catalogue.maxOutput],
+                      ['Modalities', Array.isArray(inspected.catalogue.modalities) ? inspected.catalogue.modalities.join(', ') : inspected.catalogue.modalities],
+                      ['Source', inspected.catalogue.source]
+                    ].filter(([, value]) => value !== null && value !== undefined && value !== '').map(([label, value]) => (
+                      <div key={label} className="flex gap-3">
+                        <dt className="text-ink-faint" style={{ minWidth: 96 }}>{label}</dt>
+                        <dd className="truncate">{String(value)}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                ) : (
+                  <p className="text-ink-soft" style={{ fontSize: 'var(--fs-small)' }}>
+                    {inspected.catalogue.error || 'No catalogue entry was found for this model.'}
+                  </p>
+                )}
+              </div>
+            </div>
           )}
         </section>
       )}

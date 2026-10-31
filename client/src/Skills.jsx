@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import api from './api.js';
+import { modelKey, modelLabel, remoteProviders } from './models.js';
 
 function Diagram({ diagram, onPick }) {
   if (!diagram?.nodes?.length) return <div className="empty">No diagram is available for this skill.</div>;
@@ -67,6 +68,9 @@ export default function Skills({ providers }) {
   const [task, setTask] = useState('');
   const [results, setResults] = useState(null);
   const [models, setModels] = useState([]);
+  const [selectedModels, setSelectedModels] = useState(new Set());
+  const [explainModel, setExplainModel] = useState('');
+  const [loadingModels, setLoadingModels] = useState(false);
 
   async function load() {
     try {
@@ -80,15 +84,41 @@ export default function Skills({ providers }) {
   useEffect(() => { load(); }, []);
 
   useEffect(() => {
-    const remote = providers.filter(provider => provider.presetId !== 'ollama');
-    Promise.all(remote.map(async provider => {
+    let cancelled = false;
+    setLoadingModels(true);
+    Promise.all(remoteProviders(providers).map(async provider => {
       try {
         const result = await api.comparisonModels(provider.id);
         return (result.models || []).filter(model => model.available)
           .map(model => ({ ...model, providerName: provider.name }));
       } catch { return []; }
-    })).then(results => setModels(results.flat()));
+    })).then(found => {
+      if (cancelled) return;
+      const flat = found.flat();
+      setModels(flat);
+      setSelectedModels(previous => {
+        const kept = new Set([...previous].filter(key => flat.some(model => modelKey(model) === key)));
+        if (kept.size) return kept;
+        return new Set(flat.slice(0, 3).map(modelKey));
+      });
+      setExplainModel(previous => previous || (flat[0] ? modelKey(flat[0]) : ''));
+    }).finally(() => { if (!cancelled) setLoadingModels(false); });
+    return () => { cancelled = true; };
   }, [providers]);
+
+  const chosenModels = useMemo(
+    () => models.filter(model => selectedModels.has(modelKey(model))),
+    [models, selectedModels]
+  );
+  const explainTarget = models.find(model => modelKey(model) === explainModel) || null;
+
+  function toggleModel(key) {
+    setSelectedModels(previous => {
+      const next = new Set(previous);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }
 
   async function open(slug) {
     setError(null); setNotice(''); setExplanation(null); setResults(null);
@@ -118,11 +148,12 @@ export default function Skills({ providers }) {
   }
 
   async function explain() {
-    const model = models[0];
-    if (!model) { setError('No remote model is available to explain the skill.'); return; }
+    if (!explainTarget) { setError('Choose a remote model to explain the skill.'); return; }
     setNotice('Asking the model for a plain English explanation…');
     try {
-      const result = await api.explainSkill(detail.slug, { providerId: model.providerId, modelId: model.modelId });
+      const result = await api.explainSkill(detail.slug, {
+        providerId: explainTarget.providerId, modelId: explainTarget.modelId
+      });
       setExplanation(result.explanation);
       setNotice('');
     } catch (err) { setError(err.message); setNotice(''); }
@@ -130,12 +161,12 @@ export default function Skills({ providers }) {
 
   async function run() {
     if (!task.trim()) { setError('Describe a task for the skill to perform.'); return; }
-    if (!models.length) { setError('No remote model is available. Local models are excluded.'); return; }
-    setNotice(`Running ${models.length} model${models.length === 1 ? '' : 's'}…`);
+    if (!chosenModels.length) { setError('Choose at least one remote model. Local models are excluded.'); return; }
+    setNotice(`Running ${chosenModels.length} model${chosenModels.length === 1 ? '' : 's'}…`);
     try {
       const report = await api.runSkill(detail.slug, {
         task,
-        models: models.map(model => ({ providerId: model.providerId, modelId: model.modelId })),
+        models: chosenModels.map(model => ({ providerId: model.providerId, modelId: model.modelId })),
         settings: { maxOutputTokens: 600, stream: false }
       });
       setResults(report);
@@ -247,10 +278,19 @@ export default function Skills({ providers }) {
             <ol className="ml-5" style={{ lineHeight: 1.7 }}>
               {detail.plainEnglish.mechanical.map((line, index) => <li key={index}>{line}</li>)}
             </ol>
-            <div className="mt-4 flex flex-wrap items-center gap-3">
-              <button type="button" className="btn" onClick={explain}>Explain in plain English</button>
+            <div className="mt-4 flex flex-wrap items-end gap-3">
+              <label className="field" style={{ minWidth: 260 }}>
+                <span>Explain with</span>
+                <select className="input" value={explainModel} onChange={event => setExplainModel(event.target.value)}>
+                  {models.length === 0 && <option value="">No remote models available</option>}
+                  {models.map(model => (
+                    <option key={modelKey(model)} value={modelKey(model)}>{modelLabel(model, providers)}</option>
+                  ))}
+                </select>
+              </label>
+              <button type="button" className="btn" onClick={explain} disabled={!explainTarget}>Explain in plain English</button>
               <span style={{ color: 'var(--color-ink-soft)', fontSize: 'var(--fs-small)' }}>
-                {models.length} remote model{models.length === 1 ? '' : 's'} available. Local models are excluded.
+                {loadingModels ? 'Discovering remote models…' : `${models.length} remote model${models.length === 1 ? '' : 's'} available. Local models are excluded.`}
               </span>
             </div>
             {explanation && (
@@ -305,11 +345,32 @@ export default function Skills({ providers }) {
               <textarea className="input" rows={3} value={task} placeholder="A task this skill should help with"
                 onChange={event => setTask(event.target.value)} />
             </label>
+            <fieldset className="mt-3 border-0 p-0">
+              <legend className="mb-2 text-ink-soft" style={{ fontSize: 'var(--fs-small)' }}>
+                Models to run ({chosenModels.length} of {models.length} selected)
+              </legend>
+              {models.length === 0 ? (
+                <p className="text-ink-soft" style={{ fontSize: 'var(--fs-small)' }}>
+                  No remote models are available. Local models are excluded.
+                </p>
+              ) : (
+                <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                  {models.map(model => {
+                    const key = modelKey(model);
+                    return (
+                      <label key={key} className="flex items-center gap-2 text-ink-soft" style={{ fontSize: 'var(--fs-small)' }}>
+                        <input type="checkbox" checked={selectedModels.has(key)} onChange={() => toggleModel(key)} />
+                        <span className="truncate">{modelLabel(model, providers)}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+            </fieldset>
             <div className="mt-3 flex items-center gap-3">
-              <button type="button" className="btn primary" onClick={run}>Run across selected models</button>
-              <span style={{ color: 'var(--color-ink-soft)', fontSize: 'var(--fs-small)' }}>
-                {models.map(model => model.modelId).join(', ') || 'No remote models configured'}
-              </span>
+              <button type="button" className="btn primary" onClick={run} disabled={!chosenModels.length}>
+                Run across {chosenModels.length || 'no'} model{chosenModels.length === 1 ? '' : 's'}
+              </button>
             </div>
             {results && (
               <div className="mt-4 table-wrap">

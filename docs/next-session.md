@@ -10,10 +10,21 @@ through the React client that now ships in `client/`.
 
 - `1ffc1a0` — React client replaces the vanilla frontend. Server serves `client/dist` with the session
   token injected. Eight workspaces built and reading live endpoints. 78 tests green.
+- Compare blind review now works in React: per-response rubric review, pair preference and the
+  replacement verdict. The blind rule holds: model identity, timing, usage and provider errors stay
+  hidden until every response in the batch carries a review. `client/src/compareReview.js` holds the
+  pure rules, `client/src/CompareReview.jsx` the forms, `test/compare-review.test.mjs` the checks.
+- Recent runs can be reopened from the Compare screen, so an existing run reaches its review forms.
+- `.table-wrap` now scrolls horizontally. Before that the class had no CSS and every table screen
+  overflowed at 390px.
 - `inspect.mjs --app`: 0 FAIL at 1440, 768 and 390. `lint.mjs --app`: 0 FAIL.
 - The project icon is `client/src/assets/icon.svg`, used in the rail switcher and as the favicon.
 - Run with `npm start` (builds the client first, then serves on 127.0.0.1:8787). `npm run dev` for the
   Vite dev server, `npm run build:watch` to rebuild on change.
+- Provider keys drift. At handover the Ollama Cloud key was rejected with HTTP 401 on chat, and most
+  9Router models were retired. Working routes were `openrouter/cohere/north-mini-code:free`,
+  `openrouter/nvidia/nemotron-3-ultra-550b-a55b:free` and `ollamacloud/kimi-k2.6`, each saved with an
+  explicit `chat-completions` mapping through `POST /api/comparison/model-mapping`.
 
 ## What is done
 
@@ -21,32 +32,23 @@ through the React client that now ships in `client/`.
 |---|---|
 | LLM transparency | Modelfile inspector, parameter registry with wire names, thinking mapping, request provenance. Live. |
 | Chat | Streaming, full parameter panel, reasoning and developer disclosures. Live. |
-| Models | Discovery table, capability columns, Modelfile panel. Live. |
+| Models | Discovery table, capability columns, Modelfile panel. Non-Ollama models show the provider catalogue entry and its declared parameters. Live. |
 | Ollama | Version, installed and running models, pull, delete, stop, start. Live. |
-| Compare | Model pair, shared settings, case selection, preflight, batch table, evidence, run history. Live. |
-| Skills | Import, plain-English steps, flow diagram, editable source, model explanation, cross-model run. Live. |
+| Compare | Model pair, shared settings, case selection, preflight, batch table, blind review, pair preference, verdict, evidence, run history. Live. |
+| Skills | Import, plain-English steps, flow diagram, editable source, explanation with a chosen remote model, cross-model run with a model picker. Live. |
 | Audit | Run list and evidence from `/api/comparisons`. Live. |
 | Settings | Provider CRUD, remote HTTP toggle, data locations. Live. |
-| MCP | Screen laid out, no backend. Empty state names the three endpoints it expects. |
+| MCP | Registry, OAuth (DCR + PKCE), `initialize`/`tools/list`, `tools/call` with measured latency, persisted audit log. Live. |
 
 ## What is not done
 
-1. **Compare blind review in React.** The backend endpoints work and the Audit screen reads them, but the
-   React screen has no review form, pair preference form or verdict form. Port the three React screens
-   that `public/compare.js` used to provide: `POST /api/comparisons/:id/assessment`,
-   `POST /api/comparisons/:id/pair-assessment`, `POST /api/comparisons/:id/verdict`. The blind labelling
-   rule matters: model identity stays hidden until every response in the batch is reviewed.
-2. **MCP backend.** No routes exist. Needed: a server registry, `initialize` plus `tools/list` discovery
-   over HTTP, OAuth with dynamic client registration and PKCE, `tools/call` execution, and an audit log
-   with measured latency. Context7 needs no key and works today; Canva, Notion and second-brain all
-   return a standard `WWW-Authenticate: Bearer resource_metadata=...` challenge. See
-   `docs/superpowers/specs/2026-10-31-llm-mcp-skill-auditor-design.md` if it exists, otherwise the
-   acceptance criteria in the original brief.
-3. **Skill cross-model run uses a fixed model list.** The Skills screen sends every remote model it can
-   discover rather than letting the user choose. Add a model picker, and make sure local models stay
-   excluded: Shane's standing instruction is that local models are never used for testing or demos.
-4. **Model detail panel for non-Ollama providers.** The inspector states the gap honestly but does not
-   surface OpenRouter's `supported_parameters` or a Modelfile equivalent.
+No acceptance criterion from the original brief is outstanding. Two design decisions stay open by
+choice, both noted under the constraints:
+
+1. **Credentials in the OS keychain.** `state.json` at mode 0600 holds provider keys and MCP OAuth
+   tokens. Moving them to the keychain is desirable, not required by the brief.
+2. **MCP token refresh.** An expired OAuth access token currently needs a fresh authorisation. The
+   refresh helper exists in `lib/mcp/oauth.mjs` but nothing calls it.
 
 ## Constraints that must hold
 

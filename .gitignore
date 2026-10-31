@@ -9,3 +9,10 @@ assets/*.iconset/
 .superpowers/
 .claude/
 .taste-skill/
+build/
+
+# Local runtime data (never commit)
+*.local.json
+state.json
+mcp-audit.json
+comparisons/

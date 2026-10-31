@@ -1,6 +1,6 @@
 # Model Comparison Extension Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox syntax. Intended implementer: Luna 6. Do not start until Shane explicitly approves implementation.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox syntax. Intended implementer: a subagent. Do not start until the repository owner approves implementation.
 
 **Goal:** Extend the existing LLM Tester with two-model comparisons that establish whether alternative models are sufficiently reliable for copywriting, layout concepts and technical work.
 
@@ -12,19 +12,18 @@
 
 ## Global Constraints
 
-- Workspace: /Users/Shane/Z-Projects/LLM Tester.
 - This is an extension of the same app, server and provider configuration.
 - Preserve Chat, Models and Ollama behaviour.
 - Keep loopback binding, same-origin mutation checks, session token checks and strict CSP.
 - Do not commit, push, install software, modify live credentials or initiate paid benchmarks without explicit authorisation.
 - Use disposable state and mock providers for automated checks.
 - Preserve unrelated changes, including the existing untracked .claude directory.
-- Present implementation diffs for approval under Shane's file-change rule. Plan approval alone does not waive that rule.
+- Present implementation diffs for approval before applying them. Plan approval alone does not waive that rule.
 - No automatic retries, fallback models, generated-code execution or returned-tool execution.
 - Missing metrics remain null/unknown, never zero.
 - Never describe a mocked provider test as verified live integration.
 - No subagents are required for implementation.
-- Delete this plan only after all agreed deliverables and verification are complete. Shane has requested that cleanup. Retain it if work is partial or blocked.
+- Delete this plan only after all agreed deliverables and verification are complete. Retain it if work is partial or blocked.
 
 ## Specification Snapshot
 
@@ -461,7 +460,7 @@ comparison-api.test.mjs; comparison-evaluate.test.mjs.
 - [ ] Write docs/model-comparison.md covering use, comparison limits,
   provider setup, Go restrictions, coding evidence provenance, costs,
   persistence and report interpretation. Do not duplicate this plan.
-- [ ] Live provider smoke tests require Shane's authorisation and
+- [ ] Live provider smoke tests require the operator's authorisation and
   configured access. Report each provider separately as mocked,
   live-verified or unavailable. Never infer live success from fixtures.
 - [ ] Present outcome, checks, limitations and any remaining acceptance
@@ -478,7 +477,7 @@ comparison-api.test.mjs; comparison-evaluate.test.mjs.
   remains blocked. List the exact unfinished items instead.
 - [ ] Ensure durable usage and verification information exists in
   docs/model-comparison.md and the final handoff.
-- [ ] Delete only this plan, as requested by Shane.
+- [ ] Delete only this plan.
 - [ ] Verify the plan is absent and inspect git status to ensure no
   unrelated file was removed. Do not commit or push.
 

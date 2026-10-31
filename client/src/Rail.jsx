@@ -11,14 +11,25 @@ export default function Rail({ active, onSelect, providers, providerId, onProvid
   const current = providers.find(item => item.id === providerId);
   return (
     <aside className="rail">
-      <button type="button" className="switcher" onClick={() => onProviderPick?.('')}>
+      <div className="switcher">
         <img className="mark" src={icon} alt="" width="32" height="32" />
-        <span className="who">
-          <b>{current?.name || 'No provider'}</b>
+        <label className="who">
+          <span className="sr-only">Active provider</span>
+          <select
+            aria-label="Active provider"
+            value={current?.id || ''}
+            onChange={event => onProviderPick?.(event.target.value)}
+            style={{ width: '100%', border: 0, background: 'transparent', color: 'inherit', font: 'inherit', padding: 0 }}
+          >
+            {providers.length === 0 && <option value="">No provider</option>}
+            {providers.map(provider => (
+              <option key={provider.id} value={provider.id}>{provider.name}</option>
+            ))}
+          </select>
           <span>{current?.baseUrl || 'Add a provider to start'}</span>
-        </span>
+        </label>
         <Ico name="chip" className="size-3.5 text-ink-faint" />
-      </button>
+      </div>
 
       <nav aria-label="Workspaces" className="flex w-full flex-col gap-0">
         {GROUPS.map(group => (

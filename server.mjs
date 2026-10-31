@@ -15,6 +15,7 @@ import { inspectModel } from './lib/llm/modelfile.mjs';
 import { parseParameters, describeProvenance, applyThinking } from './lib/llm/parameters.mjs';
 import { createSkillStore } from './lib/skills/store.mjs';
 import { handleSkillRoute } from './lib/skills/routes.mjs';
+import { createMcpAuditStore, createMcpAuthStore, handleMcpRoute } from './lib/mcp/routes.mjs';
 
 const root = dirname(fileURLToPath(import.meta.url));
 const JSON_LIMIT = 8 * 1024 * 1024;
@@ -31,7 +32,14 @@ const MIME = {
   '.webmanifest': 'application/manifest+json'
 };
 const CSP = "default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self'; font-src 'self'; script-src 'self'; base-uri 'none'; frame-ancestors 'none'";
-const CLIENT_DIR = join(root, 'client', 'dist');
+const resources = process.env.LLM_TESTER_RESOURCES;
+const CLIENT_DIR = resources ? join(resources, 'client', 'dist') : join(root, 'client', 'dist');
+
+export function parsePort(raw = process.env.LLM_TESTER_PORT) {
+  const port = raw === undefined || raw === '' ? 8787 : Number(raw);
+  if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error(`Invalid port: ${raw}`);
+  return port;
+}
 
 function json(res, status, body) { res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }); res.end(JSON.stringify(body)); }
 function error(res, status, message) { json(res, status, { error: message }); }
@@ -62,12 +70,15 @@ function extractModels(data, provider) {
 
 export function createApp({ statePath, comparisonDir, fetchImpl = fetch, clientDir = CLIENT_DIR } = {}) {
   let state;
+  let ready = false;
   let token = randomBytes(32).toString('base64url');
   const traces = new Map();
   let managedOllama = null;
   let comparisonStore = null;
   let comparisonRunner = null;
   let skillStore = null;
+  let mcpAudit = null;
+  const mcpAuth = createMcpAuthStore();
 
   async function persist() { await saveState(state, statePath); }
   function origin(req) { return `http://127.0.0.1:${server.address()?.port}`; }
@@ -99,6 +110,7 @@ export function createApp({ statePath, comparisonDir, fetchImpl = fetch, clientD
 
   const server = createServer(async (req, res) => {
     try {
+      if (!ready) return error(res, 503, 'The server is still starting.');
       const url = route(req), path = url.pathname, mutate = !['GET', 'HEAD'].includes(req.method);
       if (!trusted(req, mutate)) return error(res, 403, 'This local server only accepts same-origin requests on 127.0.0.1 with the active session token.');
       if (comparisonRunner && await handleComparisonRoute(req, res, {
@@ -109,6 +121,11 @@ export function createApp({ statePath, comparisonDir, fetchImpl = fetch, clientD
       })) return;
       if (skillStore && await handleSkillRoute(req, res, {
         state, skillStore, providerFor, readBody: requestBody, fetchImpl,
+        origin: request => origin(request)
+      })) return;
+      if (mcpAudit && await handleMcpRoute(req, res, {
+        servers: state.mcpServers, audit: mcpAudit, auth: mcpAuth, readBody: requestBody, fetchImpl,
+        persist, port: server.address()?.port,
         origin: request => origin(request)
       })) return;
       if (path === '/' && req.method === 'GET') {
@@ -198,12 +215,20 @@ export function createApp({ statePath, comparisonDir, fetchImpl = fetch, clientD
     }
   });
   return {
-    async start(port = 8787) {
+    async start(port = parsePort()) {
+      if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error(`Invalid port: ${port}`);
+      // Claim the port before touching state: a losing launch must not flip the live
+      // server's in-flight comparison records to `interrupted` on disk.
+      await new Promise((resolve, reject) => {
+        server.once('error', reject);
+        server.listen(port, '127.0.0.1', () => { server.off('error', reject); resolve(); });
+      });
       state = await loadState(statePath);
       const rootPath = comparisonDir || join(dirname(statePath || defaultStatePath), 'comparisons');
       comparisonStore = await createComparisonStore(rootPath);
       await comparisonStore.recoverInterrupted();
       skillStore = await createSkillStore(join(dirname(rootPath), 'skills'));
+      mcpAudit = await createMcpAuditStore(join(dirname(rootPath), 'mcp-audit.json'));
       comparisonRunner = createComparisonRunner({
         store: comparisonStore,
         resolveProvider: async id => {
@@ -213,7 +238,7 @@ export function createApp({ statePath, comparisonDir, fetchImpl = fetch, clientD
         },
         executeModel: comparisonExecutor(fetchImpl)
       });
-      await new Promise(resolve => server.listen(port, '127.0.0.1', resolve));
+      ready = true;
       return server.address();
     },
     async close() {
@@ -227,6 +252,13 @@ export function createApp({ statePath, comparisonDir, fetchImpl = fetch, clientD
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const app = createApp(); const address = await app.start(); console.log(`LLM API Debugger listening on http://127.0.0.1:${address.port}`);
-  process.on('SIGINT', async () => { await app.close(); process.exit(0); });
+  try {
+    const app = createApp(); const address = await app.start(); console.log(`READY ${address.port}`); console.log(`LLM API Debugger listening on http://127.0.0.1:${address.port}`);
+    const shutdown = async () => { await app.close(); process.exit(0); };
+    process.on('SIGINT', shutdown);
+    process.on('SIGTERM', shutdown);
+  } catch (caught) {
+    console.error(caught.message);
+    process.exit(1);
+  }
 }

@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import api from './api.js';
+import { PairCard, VerdictForm } from './CompareReview.jsx';
+import { allReviewed, blindLabel, isTerminal, pairFinished, pairReviewed } from './compareReview.js';
 
 const COMPARABLE = new Set(['ollama-cloud', 'opencode-go', 'openrouter']);
 
@@ -23,6 +25,7 @@ export default function Compare({ providers }) {
   const [error, setError] = useState(null);
   const [status, setStatus] = useState('');
   const [history, setHistory] = useState([]);
+  const [reviewNote, setReviewNote] = useState('');
 
   async function loadCatalogue() {
     const results = await Promise.all(comparable.map(async provider => {
@@ -102,8 +105,12 @@ export default function Compare({ providers }) {
         if (cancelled) return;
         setRun(record);
         if (!['queued', 'running'].includes(record.status)) {
-          const result = await api.comparisonReport(record.id);
-          if (!cancelled) setReport(result);
+          if (allReviewed(record.attempts)) {
+            const result = await api.comparisonReport(record.id);
+            if (!cancelled) setReport(result);
+          } else if (!cancelled) {
+            setReport(null);
+          }
           loadHistory();
           return;
         }
@@ -123,6 +130,68 @@ export default function Compare({ providers }) {
     latency: group.latency,
     quality: group.quality
   })), [report]);
+
+  const pairs = useMemo(() => {
+    const grouped_ = new Map();
+    for (const attempt of run?.attempts || []) {
+      const list = grouped_.get(attempt.pairId) || [];
+      list.push(attempt);
+      grouped_.set(attempt.pairId, list);
+    }
+    return [...grouped_.entries()].map(([pairId, attempts]) => {
+      const testCase = run.input.caseVersions.find(item => item.id === attempts[0]?.caseId && item.version === attempts[0]?.caseVersion);
+      const assignment = run.blindAssignments?.[pairId] || { A: 'left', B: 'right' };
+      return {
+        pairId,
+        attempts,
+        testCase,
+        assignment,
+        revealed: allReviewed(run.attempts),
+        pairReviewed: pairReviewed(attempts),
+        finished: isTerminal(run.status) && pairFinished(attempts),
+        order: [assignment.A, assignment.B].map(side => attempts.find(item => item.side === side)).filter(Boolean)
+      };
+    });
+  }, [run]);
+
+  async function refreshRun() {
+    if (!run?.id) return;
+    const record = await api.comparison(run.id);
+    setRun(record);
+    return record;
+  }
+
+  async function openRun(id) {
+    setError(null);
+    try {
+      const record = await api.comparison(id);
+      setRun(record);
+      setReport(null);
+      if (allReviewed(record.attempts)) setReport(await api.comparisonReport(id));
+    } catch (err) { setError(err.message); }
+  }
+
+  async function saveAssessment(payload) {
+    await api.assess(run.id, payload);
+    const record = await refreshRun();
+    if (record && allReviewed(record.attempts)) setReport(await api.comparisonReport(record.id));
+    loadHistory();
+    setReviewNote('Saved blind review.');
+  }
+
+  async function savePairAssessment(payload) {
+    await api.assessPair(run.id, payload);
+    await refreshRun();
+    loadHistory();
+    setReviewNote('Saved the blind A/B preference.');
+  }
+
+  async function saveVerdict(payload) {
+    await api.verdict(run.id, payload);
+    await refreshRun();
+    loadHistory();
+    setReviewNote('Saved the human replacement judgement.');
+  }
 
   const toggleCase = id => {
     setSelectedCases(previous => {
@@ -263,22 +332,56 @@ export default function Compare({ providers }) {
           <div className="table-wrap">
             <table>
               <thead>
-                <tr><th>Side</th><th>Case</th><th>Status</th><th className="n">Output chars</th><th className="n">Latency</th><th>Reason</th></tr>
+                <tr><th>Response</th><th>Case</th><th>Status</th><th className="n">Output chars</th><th className="n">Latency</th><th>Reason</th></tr>
               </thead>
               <tbody>
-                {(run.attempts || []).map(attempt => (
-                  <tr key={attempt.id}>
-                    <td>{attempt.side === 'left' ? 'Left' : 'Right'}</td>
-                    <td className="mono">{attempt.caseId}@{attempt.caseVersion}</td>
-                    <td><span className={`pill ${attempt.status === 'complete' ? 'pos' : attempt.status === 'error' ? 'neg' : ''}`}>{attempt.status}</span></td>
-                    <td className="n">{(attempt.output || '').length}</td>
-                    <td className="n">{attempt.metrics?.totalMs ? `${Math.round(attempt.metrics.totalMs)} ms` : '—'}</td>
-                    <td className="truncate">{attempt.error || '—'}</td>
-                  </tr>
-                ))}
+                {(run.attempts || []).map(attempt => {
+                  const revealed = allReviewed(run.attempts);
+                  return (
+                    <tr key={attempt.id}>
+                      <td>Response {blindLabel(run.blindAssignments, attempt)}</td>
+                      <td className="mono">{attempt.caseId}@{attempt.caseVersion}</td>
+                      <td><span className={`pill ${attempt.status === 'complete' ? 'pos' : attempt.status === 'error' ? 'neg' : ''}`}>{attempt.status}</span></td>
+                      <td className="n">{(attempt.output || '').length}</td>
+                      <td className="n">{revealed && attempt.metrics?.totalMs ? `${Math.round(attempt.metrics.totalMs)} ms` : '—'}</td>
+                      <td className="truncate">{revealed ? (attempt.error || 'none') : 'hidden until review'}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
+        </section>
+      )}
+
+      {run && (
+        <section className="stack">
+          <div className="panel">
+            <header>
+              <h2>Blind review</h2>
+              <span className="meta">
+                {pairs.filter(pair => pair.finished).length} of {pairs.length} pairs finished ·{' '}
+                {run.attempts.filter(attempt => attempt.assessment?.reviewed === true).length} of {run.attempts.length} responses reviewed
+              </span>
+            </header>
+            <p className="text-sm text-ink-soft">
+              {allReviewed(run.attempts)
+                ? 'Every response carries a blind review. Model identity and operational detail are now visible.'
+                : 'Review each response against its category rubric. Model identity, timing and pricing stay hidden until every response in the batch is reviewed.'}
+            </p>
+            {reviewNote && <p className="mt-2 text-xs text-ink-faint">{reviewNote}</p>}
+          </div>
+          {pairs.map(pair => (
+            <PairCard key={pair.pairId} pair={pair} run={run} providers={providers}
+              onSaveAssessment={saveAssessment} onSavePair={savePairAssessment} />
+          ))}
+        </section>
+      )}
+
+      {run && !['queued', 'running'].includes(run.status) && (
+        <section className="panel">
+          <header><h2>Replacement verdict</h2><span className="meta">human judgement with rationale</span></header>
+          <VerdictForm run={run} onSave={saveVerdict} />
         </section>
       )}
 
@@ -314,7 +417,7 @@ export default function Compare({ providers }) {
           <div className="table-wrap">
             <table>
               <thead>
-                <tr><th>Run</th><th>Category</th><th className="n">Cases</th><th className="n">Attempts</th><th>Status</th><th>Started</th></tr>
+                <tr><th>Run</th><th>Category</th><th className="n">Cases</th><th className="n">Attempts</th><th>Status</th><th>Started</th><th>Open</th></tr>
               </thead>
               <tbody>
                 {history.map(item => (
@@ -325,6 +428,9 @@ export default function Compare({ providers }) {
                     <td className="n">{item.attempts}</td>
                     <td><span className={`pill ${item.status === 'complete' ? 'pos' : ''}`}>{item.status}</span></td>
                     <td className="truncate">{new Date(item.createdAt).toLocaleString()}</td>
+                    <td>
+                      <button type="button" className="btn ghost" onClick={() => openRun(item.id)}>Open</button>
+                    </td>
                   </tr>
                 ))}
               </tbody>

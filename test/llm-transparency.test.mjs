@@ -48,11 +48,112 @@ test('states the gap instead of inventing a Modelfile for cloud models', async (
   server.close();
 });
 
-test('reports that a non-Ollama provider publishes no internals', async () => {
-  const result = await inspectModel({ ...provider('openrouter'), name: 'OpenRouter' }, 'anthropic/claude-sonnet-4.5');
-  assert.equal(result.source, 'none');
+test('reports that a non-Ollama provider publishes no Modelfile', async () => {
+  const result = await inspectModel({
+    ...provider('openrouter'), name: 'OpenRouter', baseUrl: 'http://127.0.0.1:1/v1'
+  }, 'anthropic/claude-sonnet-4.5');
+  assert.equal(result.source, 'provider-catalogue');
   assert.equal(publishesInternals(provider('openrouter')), false);
   assert.match(result.gaps[0], /does not publish a Modelfile/);
+  assert.equal(result.catalogue.entry, null);
+});
+
+test('reads supported parameters and the catalogue entry for a non-Ollama model', async () => {
+  let seenAuth = null;
+  const server = createServer((req, res) => {
+    seenAuth = req.headers.authorization;
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({
+      data: [{
+        id: 'anthropic/claude-sonnet-4.5',
+        name: 'Claude Sonnet 4.5',
+        owned_by: 'anthropic',
+        context_length: 200000,
+        supported_parameters: ['temperature', 'top_p', 'max_tokens', 'tools'],
+        architecture: { input_modalities: ['text', 'image'] },
+        pricing: { prompt: '0.000003', completion: '0.000015' }
+      }]
+    }));
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const remote = {
+      ...provider('openrouter'), name: 'OpenRouter', apiKey: 'secret', auth: 'bearer',
+      baseUrl: `http://127.0.0.1:${server.address().port}/v1`
+    };
+    const result = await inspectModel(remote, 'anthropic/claude-sonnet-4.5');
+    assert.equal(seenAuth, 'Bearer secret');
+    assert.equal(result.source, 'provider-catalogue');
+    assert.deepEqual(result.catalogue.supportedParameters, ['temperature', 'top_p', 'max_tokens', 'tools']);
+    assert.equal(result.catalogue.entry.name, 'Claude Sonnet 4.5');
+    assert.equal(result.catalogue.entry.ownedBy, 'anthropic');
+    assert.equal(result.catalogue.context, 200000);
+    assert.deepEqual(result.catalogue.modalities, ['text', 'image']);
+    assert.equal(result.catalogue.source, 'provider-catalogue');
+    assert.match(result.gaps[1], /catalogue declares/);
+  } finally {
+    await new Promise(resolve => server.close(resolve));
+  }
+});
+
+test('a catalogue entry with a capabilities block is read as declared parameters', async () => {
+  const server = createServer((_req, res) => {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({
+      data: [{
+        id: 'nvidia/minimaxai/minimax-m2.7',
+        owned_by: 'nvidia',
+        context_length: 200000,
+        max_completion_tokens: 131072,
+        capabilities: { tools: true, reasoning: true, vision: false, contextWindow: 200000 },
+        supported_parameters: undefined
+      }]
+    }));
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const remote = {
+      ...provider('9router'), name: '9Router',
+      baseUrl: `http://127.0.0.1:${server.address().port}/v1`
+    };
+    const result = await inspectModel(remote, 'nvidia/minimaxai/minimax-m2.7');
+    assert.deepEqual(result.catalogue.supportedParameters, []);
+    assert.equal(result.catalogue.declaredCapabilities.tools, true);
+    assert.equal(result.catalogue.declaredCapabilities.vision, false);
+    assert.equal(result.catalogue.maxOutput, 131072);
+    assert.equal(result.catalogue.source, 'provider-catalogue');
+  } finally {
+    await new Promise(resolve => server.close(resolve));
+  }
+});
+
+test('a model missing from the catalogue reports that gap instead of inventing fields', async () => {
+  const server = createServer((_req, res) => {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ data: [{ id: 'other-model', supported_parameters: ['temperature'] }] }));
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const remote = {
+    ...provider('openrouter'), name: 'OpenRouter',
+    baseUrl: `http://127.0.0.1:${server.address().port}/v1`
+  };
+  const result = await inspectModel(remote, 'missing-model');
+  assert.equal(result.catalogue.entry, null);
+  assert.match(result.gaps[1], /does not list missing-model/);
+  server.close();
+});
+
+test('a catalogue endpoint failure is reported, not hidden', async () => {
+  const server = createServer((_req, res) => { res.writeHead(500).end(); });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const remote = {
+    ...provider('openrouter'), name: 'OpenRouter',
+    baseUrl: `http://127.0.0.1:${server.address().port}/v1`
+  };
+  const result = await inspectModel(remote, 'anything');
+  assert.equal(result.catalogue.entry, null);
+  assert.match(result.catalogue.error, /HTTP 500/);
+  server.close();
 });
 
 test('keeps unknown parameters out of the request and records why', () => {
